@@ -29,6 +29,7 @@ state = {
     "device": "cuda",
     "jobs": [],  # List of {id, input_folder, output_folder, status, files, current_file, progress, errors}
     "is_running": False,
+    "worker_status": "",
     "openai_available": HAS_OPENAI,
     "openai_key": os.environ.get("OPENAI_API_KEY", ""),
 }
@@ -83,12 +84,15 @@ def worker():
     """Background worker that processes the job queue."""
     global model
     
+    state["is_running"] = True
+    state["worker_status"] = "Loading model..."
+    
     # Only load local model if there are non-API jobs
     needs_local = any(j.get("mode") != "api" and j["status"] == "queued" for j in state["jobs"])
     if needs_local and not state["model_loaded"]:
+        state["worker_status"] = f"Loading {state['model_name']} on {state['device']}... (this may take 30-60s)"
         load_model()
-    
-    state["is_running"] = True
+        state["worker_status"] = f"Model ready on {state['device']}"
     
     for job in state["jobs"]:
         if job["status"] == "cancelled":
@@ -168,6 +172,7 @@ def api_status():
         "model_name": state["model_name"],
         "device": state["device"],
         "is_running": state["is_running"],
+        "worker_status": state.get("worker_status", ""),
         "jobs": state["jobs"],
     })
 

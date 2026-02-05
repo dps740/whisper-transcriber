@@ -170,6 +170,7 @@
 
 <script>
 let currentBrowserPath = '';
+let selectedBrowserItem = '';  // Track single-clicked folder
 let selectedFolders = [];
 let pollInterval = null;
 
@@ -186,6 +187,7 @@ async function browseTo(path) {
     if (data.error) { alert(data.error); return; }
     
     currentBrowserPath = data.current;
+    selectedBrowserItem = '';
     document.getElementById('currentPath').textContent = data.current || 'Drives';
     
     const list = document.getElementById('browserList');
@@ -205,6 +207,7 @@ async function browseTo(path) {
         ? `<span class="audio-badge">${audioCount} audio files</span>` 
         : '';
     document.getElementById('addFolderBtn').disabled = audioCount === 0;
+    document.getElementById('addFolderBtn').textContent = '➕ Add This Folder';
 }
 
 function browseUp() {
@@ -218,6 +221,10 @@ function browseUp() {
 function selectItem(el, path) {
     document.querySelectorAll('.browser-item').forEach(e => e.classList.remove('selected'));
     el.classList.add('selected');
+    selectedBrowserItem = path;
+    // Enable "Add This Folder" for the selected subfolder
+    document.getElementById('addFolderBtn').disabled = false;
+    document.getElementById('addFolderBtn').textContent = '➕ Add Selected Folder';
 }
 
 function escHtml(s) {
@@ -226,8 +233,11 @@ function escHtml(s) {
 
 // --- Folder Management ---
 function addCurrentFolder() {
-    if (!currentBrowserPath) return;
-    addFolder(currentBrowserPath);
+    // If a subfolder is selected, add that; otherwise add current directory
+    const folderToAdd = selectedBrowserItem || currentBrowserPath;
+    if (!folderToAdd) return;
+    addFolder(folderToAdd);
+    selectedBrowserItem = '';
 }
 
 async function addAllSubfolders() {
@@ -293,9 +303,13 @@ function renderSelectedFolders() {
 
 // --- Queue ---
 async function startTranscription() {
+    startPolling();  // Start polling BEFORE the request so we see "Loading model..."
     const result = await api('start', {});
-    if (result.error) { alert(result.error); return; }
-    startPolling();
+    if (result.error) { alert(result.error); stopPolling(); return; }
+}
+
+function stopPolling() {
+    if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
 }
 
 async function clearDone() {
@@ -315,7 +329,10 @@ async function pollStatus() {
     // Update header status
     const dot = document.getElementById('statusDot');
     const text = document.getElementById('statusText');
-    if (data.is_running) {
+    if (data.is_running && !data.model_loaded) {
+        dot.className = 'dot yellow';
+        text.textContent = data.worker_status || `Loading ${data.model_name}...`;
+    } else if (data.is_running) {
         dot.className = 'dot green';
         text.textContent = `Transcribing (${data.model_name} on ${data.device.toUpperCase()})`;
     } else if (data.model_loaded) {
