@@ -58,15 +58,22 @@ def load_model():
     try:
         model = WhisperModel(state["model_name"], device=device, compute_type=compute)
         state["model_loaded"] = True
-        print(f"Model '{state['model_name']}' loaded on {device}")
+        print(f"Model '{state['model_name']}' loaded on {device} ({compute})")
     except Exception as e:
-        # Fall back to CPU if CUDA fails
         if device == "cuda":
-            print(f"CUDA failed ({e}), falling back to CPU...")
-            state["device"] = "cpu"
-            model = WhisperModel(state["model_name"], device="cpu", compute_type="int8")
-            state["model_loaded"] = True
-            print(f"Model '{state['model_name']}' loaded on CPU")
+            # Try CUDA with int8 before giving up to CPU
+            print(f"CUDA float16 failed ({e}), trying CUDA with int8...")
+            try:
+                model = WhisperModel(state["model_name"], device="cuda", compute_type="int8")
+                state["model_loaded"] = True
+                state["device"] = "cuda"
+                print(f"Model '{state['model_name']}' loaded on CUDA (int8)")
+            except Exception as e2:
+                print(f"CUDA int8 also failed ({e2}), falling back to CPU...")
+                state["device"] = "cpu"
+                model = WhisperModel(state["model_name"], device="cpu", compute_type="int8")
+                state["model_loaded"] = True
+                print(f"Model '{state['model_name']}' loaded on CPU")
         else:
             raise
 
