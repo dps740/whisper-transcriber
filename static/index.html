@@ -115,6 +115,8 @@
                     <option value="cuda" selected>GPU (CUDA)</option>
                     <option value="cpu">CPU</option>
                 </select>
+                <label style="margin-left:20px;">OpenAI Key (for ⚡Emergency):</label>
+                <input type="password" id="apiKeyInput" placeholder="sk-..." style="background:#0f172a;color:#e2e8f0;border:1px solid #334155;padding:6px 10px;border-radius:4px;width:200px;font-size:0.85em;">
             </div>
         </div>
     </div>
@@ -140,6 +142,9 @@
                 </button>
                 <button class="btn btn-ghost" onclick="addAllSubfolders()">
                     📚 Add All Subfolders
+                </button>
+                <button class="btn btn-danger btn-sm" onclick="addCurrentFolderAPI()" id="apiBtn" style="margin-left:auto;" title="Uses OpenAI API — fast but costs ~$0.18/30min">
+                    ⚡ Emergency API
                 </button>
             </div>
             
@@ -241,6 +246,17 @@ async function addAllSubfolders() {
         }
     }
     if (added === 0) alert('No subfolders with audio files found.');
+}
+
+async function addCurrentFolderAPI() {
+    if (!currentBrowserPath) return;
+    const apiKey = document.getElementById('apiKeyInput').value.trim();
+    const result = await api('add_folder_api', { input_folder: currentBrowserPath, api_key: apiKey });
+    if (result.error) { alert(result.error); return; }
+    selectedFolders.push(currentBrowserPath);
+    renderSelectedFolders();
+    renderQueue();
+    pollStatus();
 }
 
 async function addFolder(path) {

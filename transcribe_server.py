@@ -13,6 +13,13 @@ import webbrowser
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory
 
+# Optional: OpenAI API for emergency fast transcription
+try:
+    from openai import OpenAI
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
+
 app = Flask(__name__, static_folder="static")
 
 # --- State ---
@@ -22,6 +29,8 @@ state = {
     "device": "cuda",
     "jobs": [],  # List of {id, input_folder, output_folder, status, files, current_file, progress, errors}
     "is_running": False,
+    "openai_available": HAS_OPENAI,
+    "openai_key": os.environ.get("OPENAI_API_KEY", ""),
 }
 model = None
 worker_thread = None
@@ -74,7 +83,9 @@ def worker():
     """Background worker that processes the job queue."""
     global model
     
-    if not state["model_loaded"]:
+    # Only load local model if there are non-API jobs
+    needs_local = any(j.get("mode") != "api" and j["status"] == "queued" for j in state["jobs"])
+    if needs_local and not state["model_loaded"]:
         load_model()
     
     state["is_running"] = True
@@ -120,7 +131,10 @@ def worker():
             
             try:
                 start = time.time()
-                text = transcribe_file(filepath)
+                if job.get("mode") == "api":
+                    text = transcribe_file_api(filepath, job["api_key"])
+                else:
+                    text = transcribe_file(filepath)
                 elapsed = time.time() - start
                 
                 with open(out_path, "w", encoding="utf-8") as f:
@@ -274,6 +288,64 @@ def api_clear_done():
     """Remove completed/cancelled jobs from the list."""
     state["jobs"] = [j for j in state["jobs"] if j["status"] in ("queued", "running")]
     return jsonify({"ok": True})
+
+
+@app.route("/api/add_folder_api", methods=["POST"])
+def api_add_folder_api():
+    """Add a folder for OpenAI API transcription (emergency fast mode)."""
+    if not HAS_OPENAI:
+        return jsonify({"error": "openai package not installed. Run: pip install openai"}), 400
+    
+    data = request.json
+    input_folder = data.get("input_folder", "").strip()
+    api_key = data.get("api_key", "").strip() or state["openai_key"]
+    
+    if not api_key:
+        return jsonify({"error": "No OpenAI API key. Set OPENAI_API_KEY env var or enter in UI."}), 400
+    if not input_folder or not os.path.isdir(input_folder):
+        return jsonify({"error": "Invalid input folder"}), 400
+    
+    output_folder = os.path.join(input_folder, "transcripts")
+    audio_files = get_audio_files(input_folder)
+    
+    job = {
+        "id": len(state["jobs"]),
+        "input_folder": input_folder,
+        "output_folder": output_folder,
+        "folder_name": os.path.basename(input_folder) + " ⚡API",
+        "status": "queued",
+        "mode": "api",
+        "api_key": api_key,
+        "files": [os.path.basename(f) for f in audio_files],
+        "total": len(audio_files),
+        "completed": 0,
+        "current_file": "",
+        "progress": 0,
+        "errors": [],
+    }
+    
+    state["jobs"].append(job)
+    return jsonify({"ok": True, "job": job})
+
+
+def transcribe_file_api(filepath, api_key):
+    """Transcribe using OpenAI Whisper API."""
+    client = OpenAI(api_key=api_key)
+    
+    # OpenAI API has a 25MB limit — check file size
+    size_mb = os.path.getsize(filepath) / (1024 * 1024)
+    if size_mb > 25:
+        # For large files, need to split — for now just warn
+        raise Exception(f"File too large for API ({size_mb:.1f}MB > 25MB limit). Use local mode.")
+    
+    with open(filepath, "rb") as f:
+        result = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=f,
+            language="en",
+            response_format="text"
+        )
+    return result
 
 
 @app.route("/api/settings", methods=["POST"])
