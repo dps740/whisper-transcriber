@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Whisper Bulk Transcriber</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+    
+    .header { background: #1e293b; padding: 20px 30px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { font-size: 1.4em; color: #f8fafc; }
+    .header h1 span { color: #60a5fa; }
+    .header .status { font-size: 0.85em; color: #94a3b8; }
+    .header .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .header .status .dot.green { background: #22c55e; }
+    .header .status .dot.yellow { background: #eab308; }
+    .header .status .dot.gray { background: #64748b; }
+    
+    .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+    
+    .panel { background: #1e293b; border: 1px solid #334155; border-radius: 10px; margin-bottom: 20px; overflow: hidden; }
+    .panel-header { padding: 14px 20px; background: #1e293b; border-bottom: 1px solid #334155; font-weight: 600; font-size: 0.95em; display: flex; justify-content: space-between; align-items: center; }
+    .panel-body { padding: 20px; }
+    
+    /* Folder Browser */
+    .browser-path { background: #0f172a; padding: 10px 14px; border-radius: 6px; font-family: monospace; font-size: 0.85em; color: #94a3b8; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .browser-path .path-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .browser-list { max-height: 300px; overflow-y: auto; border: 1px solid #334155; border-radius: 6px; }
+    .browser-item { padding: 8px 14px; cursor: pointer; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #1e293b; font-size: 0.9em; }
+    .browser-item:hover { background: #334155; }
+    .browser-item.selected { background: #1e40af; }
+    .browser-item .icon { font-size: 1.1em; }
+    .audio-badge { background: #22c55e; color: #000; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600; margin-left: auto; }
+    
+    /* Buttons */
+    .btn { padding: 8px 18px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9em; font-weight: 600; transition: all 0.15s; }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-primary:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+    .btn-success { background: #16a34a; color: white; }
+    .btn-success:hover { background: #15803d; }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-ghost { background: transparent; color: #94a3b8; border: 1px solid #334155; }
+    .btn-ghost:hover { background: #334155; }
+    .btn-sm { padding: 5px 12px; font-size: 0.8em; }
+    
+    .btn-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+    
+    /* Queue */
+    .job-card { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 10px; }
+    .job-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .job-name { font-weight: 600; font-size: 0.95em; }
+    .job-status { font-size: 0.8em; padding: 3px 10px; border-radius: 10px; font-weight: 600; }
+    .job-status.queued { background: #334155; color: #94a3b8; }
+    .job-status.running { background: #1e40af; color: #93c5fd; }
+    .job-status.done { background: #14532d; color: #86efac; }
+    .job-status.cancelled { background: #451a03; color: #fbbf24; }
+    
+    .job-progress { margin: 8px 0; }
+    .progress-bar { height: 6px; background: #334155; border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #2563eb; border-radius: 3px; transition: width 0.3s; }
+    .progress-fill.done { background: #22c55e; }
+    
+    .job-detail { font-size: 0.82em; color: #94a3b8; }
+    .job-detail .current { color: #60a5fa; }
+    .job-errors { color: #f87171; font-size: 0.82em; margin-top: 4px; }
+    
+    .job-meta { font-size: 0.8em; color: #64748b; margin-top: 4px; }
+    
+    /* Settings */
+    .settings-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    .settings-row label { font-size: 0.85em; color: #94a3b8; }
+    .settings-row select { background: #0f172a; color: #e2e8f0; border: 1px solid #334155; padding: 6px 10px; border-radius: 4px; }
+    
+    /* Empty state */
+    .empty { text-align: center; padding: 40px; color: #64748b; }
+    .empty .icon { font-size: 2em; margin-bottom: 10px; }
+    
+    /* Selected folders list */
+    .selected-folders { margin-top: 12px; }
+    .selected-folder { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #0f172a; border-radius: 6px; margin-bottom: 6px; font-size: 0.85em; }
+    .selected-folder .folder-path { flex: 1; font-family: monospace; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .selected-folder .file-count { color: #22c55e; font-weight: 600; }
+    .selected-folder .remove { cursor: pointer; color: #64748b; }
+    .selected-folder .remove:hover { color: #f87171; }
+</style>
+</head>
+<body>
+<div class="header">
+    <h1>🎤 Whisper <span>Bulk Transcriber</span></h1>
+    <div class="status">
+        <span class="dot gray" id="statusDot"></span>
+        <span id="statusText">Initializing...</span>
+    </div>
+</div>
+
+<div class="container">
+    <!-- Settings -->
+    <div class="panel">
+        <div class="panel-header">⚙️ Settings</div>
+        <div class="panel-body">
+            <div class="settings-row">
+                <label>Model:</label>
+                <select id="modelSelect" onchange="updateSettings()">
+                    <option value="tiny">tiny (fastest, lower accuracy)</option>
+                    <option value="base">base (fast)</option>
+                    <option value="small" selected>small (recommended)</option>
+                    <option value="medium">medium (slower, higher accuracy)</option>
+                    <option value="large-v3">large-v3 (slowest, best accuracy)</option>
+                </select>
+                <label>Device:</label>
+                <select id="deviceSelect" onchange="updateSettings()">
+                    <option value="cuda" selected>GPU (CUDA)</option>
+                    <option value="cpu">CPU</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Folder Browser -->
+    <div class="panel">
+        <div class="panel-header">
+            📁 Add Folders to Transcribe
+            <button class="btn btn-ghost btn-sm" onclick="browseTo('')">Reset Browser</button>
+        </div>
+        <div class="panel-body">
+            <div class="browser-path">
+                <button class="btn btn-ghost btn-sm" onclick="browseUp()">⬆ Up</button>
+                <span class="path-text" id="currentPath">Loading...</span>
+                <span id="audioCount"></span>
+            </div>
+            <div class="browser-list" id="browserList">
+                <div class="empty"><div class="icon">📂</div>Loading...</div>
+            </div>
+            <div class="btn-row">
+                <button class="btn btn-primary" id="addFolderBtn" onclick="addCurrentFolder()" disabled>
+                    ➕ Add This Folder
+                </button>
+                <button class="btn btn-ghost" onclick="addAllSubfolders()">
+                    📚 Add All Subfolders
+                </button>
+            </div>
+            
+            <!-- Selected folders -->
+            <div class="selected-folders" id="selectedFolders"></div>
+        </div>
+    </div>
+
+    <!-- Queue -->
+    <div class="panel">
+        <div class="panel-header">
+            📋 Transcription Queue
+            <div>
+                <button class="btn btn-success btn-sm" id="startBtn" onclick="startTranscription()">▶ Start Transcription</button>
+                <button class="btn btn-ghost btn-sm" onclick="clearDone()">Clear Done</button>
+            </div>
+        </div>
+        <div class="panel-body" id="queueBody">
+            <div class="empty" id="queueEmpty"><div class="icon">📝</div>No folders added yet. Browse and add folders above.</div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentBrowserPath = '';
+let selectedFolders = [];
+let pollInterval = null;
+
+// --- API ---
+async function api(endpoint, data) {
+    const opts = data ? { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) } : {};
+    const r = await fetch('/api/' + endpoint, opts);
+    return r.json();
+}
+
+// --- Browser ---
+async function browseTo(path) {
+    const data = await api('browse', { path });
+    if (data.error) { alert(data.error); return; }
+    
+    currentBrowserPath = data.current;
+    document.getElementById('currentPath').textContent = data.current || 'Drives';
+    
+    const list = document.getElementById('browserList');
+    if (data.items.length === 0) {
+        list.innerHTML = '<div class="empty">No subfolders</div>';
+    } else {
+        list.innerHTML = data.items.map(item => `
+            <div class="browser-item" ondblclick="browseTo('${escHtml(item.path)}')" onclick="selectItem(this, '${escHtml(item.path)}')">
+                <span class="icon">${item.type === 'drive' ? '💾' : '📁'}</span>
+                ${escHtml(item.name)}
+            </div>
+        `).join('');
+    }
+    
+    const audioCount = data.audio_count || 0;
+    document.getElementById('audioCount').innerHTML = audioCount > 0 
+        ? `<span class="audio-badge">${audioCount} audio files</span>` 
+        : '';
+    document.getElementById('addFolderBtn').disabled = audioCount === 0;
+}
+
+function browseUp() {
+    // Go to parent
+    if (currentBrowserPath) {
+        const parent = currentBrowserPath.replace(/[\\/][^\\/]+[\\/]?$/, '') || '';
+        browseTo(parent);
+    }
+}
+
+function selectItem(el, path) {
+    document.querySelectorAll('.browser-item').forEach(e => e.classList.remove('selected'));
+    el.classList.add('selected');
+}
+
+function escHtml(s) {
+    return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+// --- Folder Management ---
+function addCurrentFolder() {
+    if (!currentBrowserPath) return;
+    addFolder(currentBrowserPath);
+}
+
+async function addAllSubfolders() {
+    const data = await api('browse', { path: currentBrowserPath });
+    if (!data.items) return;
+    
+    let added = 0;
+    for (const item of data.items) {
+        if (item.type === 'folder') {
+            // Check if it has audio
+            const sub = await api('browse', { path: item.path });
+            if (sub.audio_count > 0) {
+                await addFolder(item.path);
+                added++;
+            }
+        }
+    }
+    if (added === 0) alert('No subfolders with audio files found.');
+}
+
+async function addFolder(path) {
+    // Check if already added
+    if (selectedFolders.includes(path)) return;
+    
+    const result = await api('add_folder', { input_folder: path, output_mode: 'subfolder' });
+    if (result.error) { alert(result.error); return; }
+    
+    selectedFolders.push(path);
+    renderSelectedFolders();
+    renderQueue();
+    pollStatus();
+}
+
+function removeFolder(idx) {
+    selectedFolders.splice(idx, 1);
+    renderSelectedFolders();
+}
+
+function renderSelectedFolders() {
+    const el = document.getElementById('selectedFolders');
+    if (selectedFolders.length === 0) { el.innerHTML = ''; return; }
+    
+    el.innerHTML = '<div style="font-size:0.85em;color:#94a3b8;margin-bottom:6px;">Selected folders:</div>' +
+        selectedFolders.map((f, i) => `
+            <div class="selected-folder">
+                <span>📁</span>
+                <span class="folder-path">${f}</span>
+                <span class="remove" onclick="removeFolder(${i})">✕</span>
+            </div>
+        `).join('');
+}
+
+// --- Queue ---
+async function startTranscription() {
+    const result = await api('start', {});
+    if (result.error) { alert(result.error); return; }
+    startPolling();
+}
+
+async function clearDone() {
+    await api('clear_done', {});
+    selectedFolders = [];
+    renderSelectedFolders();
+    pollStatus();
+}
+
+function renderQueue() {
+    pollStatus();
+}
+
+async function pollStatus() {
+    const data = await api('status');
+    
+    // Update header status
+    const dot = document.getElementById('statusDot');
+    const text = document.getElementById('statusText');
+    if (data.is_running) {
+        dot.className = 'dot green';
+        text.textContent = `Transcribing (${data.model_name} on ${data.device.toUpperCase()})`;
+    } else if (data.model_loaded) {
+        dot.className = 'dot yellow';
+        text.textContent = `Ready (${data.model_name} on ${data.device.toUpperCase()})`;
+    } else {
+        dot.className = 'dot gray';
+        text.textContent = `Model not loaded (${data.model_name})`;
+    }
+    
+    // Update queue
+    const body = document.getElementById('queueBody');
+    const empty = document.getElementById('queueEmpty');
+    
+    if (data.jobs.length === 0) {
+        body.innerHTML = '<div class="empty" id="queueEmpty"><div class="icon">📝</div>No folders added yet. Browse and add folders above.</div>';
+        return;
+    }
+    
+    body.innerHTML = data.jobs.map(job => {
+        const pct = job.total > 0 ? (job.completed / job.total * 100) : 0;
+        const isDone = job.status === 'done';
+        return `
+            <div class="job-card">
+                <div class="job-header">
+                    <span class="job-name">📁 ${job.folder_name}</span>
+                    <div>
+                        <span class="job-status ${job.status}">${job.status.toUpperCase()}</span>
+                        ${job.status === 'running' || job.status === 'queued' ? `<button class="btn btn-danger btn-sm" onclick="api('cancel/${job.id}', {}); pollStatus();" style="margin-left:8px;">Cancel</button>` : ''}
+                    </div>
+                </div>
+                <div class="job-progress">
+                    <div class="progress-bar">
+                        <div class="progress-fill ${isDone ? 'done' : ''}" style="width: ${pct}%"></div>
+                    </div>
+                </div>
+                <div class="job-detail">
+                    ${job.completed}/${job.total} files
+                    ${job.current_file ? `— <span class="current">${job.current_file}</span>` : ''}
+                </div>
+                ${job.errors.length > 0 ? `<div class="job-errors">⚠ ${job.errors.join('<br>')}</div>` : ''}
+                <div class="job-meta">In: ${job.input_folder}<br>Out: ${job.output_folder}</div>
+            </div>
+        `;
+    }).join('');
+    
+    // Auto-stop polling when done
+    if (!data.is_running && pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+    }
+}
+
+function startPolling() {
+    if (pollInterval) clearInterval(pollInterval);
+    pollInterval = setInterval(pollStatus, 1500);
+}
+
+async function updateSettings() {
+    const model = document.getElementById('modelSelect').value;
+    const device = document.getElementById('deviceSelect').value;
+    await api('settings', { model_name: model, device: device });
+    pollStatus();
+}
+
+// --- Init ---
+browseTo('');
+pollStatus();
+</script>
+</body>
+</html>
