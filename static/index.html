@@ -102,6 +102,11 @@
         <div class="panel-header">⚙️ Settings</div>
         <div class="panel-body">
             <div class="settings-row">
+                <label>Engine:</label>
+                <select id="engineSelect" onchange="updateSettings()">
+                    <option value="faster-whisper">faster-whisper (default)</option>
+                    <option value="whisperx">whisperX (accurate timestamps ✓)</option>
+                </select>
                 <label>Model:</label>
                 <select id="modelSelect" onchange="updateSettings()">
                     <option value="tiny">tiny (fastest, lower accuracy)</option>
@@ -326,18 +331,29 @@ function renderQueue() {
 async function pollStatus() {
     const data = await api('status');
     
+    // Update engine select if whisperX not available
+    const engineSelect = document.getElementById('engineSelect');
+    if (engineSelect && !data.whisperx_available) {
+        const whisperxOption = engineSelect.querySelector('option[value="whisperx"]');
+        if (whisperxOption) {
+            whisperxOption.textContent = 'whisperX (not installed)';
+            whisperxOption.disabled = true;
+        }
+    }
+    
     // Update header status
     const dot = document.getElementById('statusDot');
     const text = document.getElementById('statusText');
+    const engineLabel = data.engine === 'whisperx' ? 'WhisperX' : 'faster-whisper';
     if (data.is_running && !data.model_loaded) {
         dot.className = 'dot yellow';
         text.textContent = data.worker_status || `Loading ${data.model_name}...`;
     } else if (data.is_running) {
         dot.className = 'dot green';
-        text.textContent = `Transcribing (${data.model_name} on ${data.device.toUpperCase()})`;
+        text.textContent = `Transcribing (${engineLabel} ${data.model_name} on ${data.device.toUpperCase()})`;
     } else if (data.model_loaded) {
         dot.className = 'dot yellow';
-        text.textContent = `Ready (${data.model_name} on ${data.device.toUpperCase()})`;
+        text.textContent = `Ready (${engineLabel} ${data.model_name} on ${data.device.toUpperCase()})`;
     } else {
         dot.className = 'dot gray';
         text.textContent = `Model not loaded (${data.model_name})`;
@@ -392,9 +408,10 @@ function startPolling() {
 }
 
 async function updateSettings() {
+    const engine = document.getElementById('engineSelect').value;
     const model = document.getElementById('modelSelect').value;
     const device = document.getElementById('deviceSelect').value;
-    await api('settings', { model_name: model, device: device });
+    await api('settings', { engine: engine, model_name: model, device: device });
     pollStatus();
 }
 

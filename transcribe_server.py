@@ -22,18 +22,28 @@ except ImportError:
 
 app = Flask(__name__, static_folder="static")
 
+# Optional: WhisperX for accurate timestamps
+try:
+    import whisperx
+    HAS_WHISPERX = True
+except ImportError:
+    HAS_WHISPERX = False
+
 # --- State ---
 state = {
     "model_loaded": False,
     "model_name": "small",
     "device": "cuda",
+    "engine": "faster-whisper",  # "faster-whisper" or "whisperx"
     "jobs": [],  # List of {id, input_folder, output_folder, status, files, current_file, progress, errors}
     "is_running": False,
     "worker_status": "",
     "openai_available": HAS_OPENAI,
     "openai_key": os.environ.get("OPENAI_API_KEY", ""),
+    "whisperx_available": HAS_WHISPERX,
 }
 model = None
+whisperx_model = None
 worker_thread = None
 
 
@@ -101,6 +111,77 @@ def transcribe_file(filepath):
     return "\n".join(lines), segments_data
 
 
+def load_whisperx_model():
+    """Load the WhisperX model for accurate timestamps."""
+    global whisperx_model
+    if not HAS_WHISPERX:
+        raise RuntimeError("WhisperX not installed. Run: pip install whisperx")
+    
+    device = state["device"]
+    compute_type = "float16" if device == "cuda" else "int8"
+    
+    whisperx_model = whisperx.load_model(
+        state["model_name"], 
+        device=device, 
+        compute_type=compute_type,
+        language="en"
+    )
+    print(f"WhisperX model '{state['model_name']}' loaded on {device}")
+
+
+def transcribe_file_whisperx(filepath):
+    """Transcribe using WhisperX for accurate word-level timestamps."""
+    global whisperx_model
+    
+    if whisperx_model is None:
+        load_whisperx_model()
+    
+    device = state["device"]
+    
+    # Load audio
+    audio = whisperx.load_audio(filepath)
+    
+    # Transcribe
+    result = whisperx_model.transcribe(audio, batch_size=16)
+    
+    # Align for accurate timestamps
+    model_a, metadata = whisperx.load_align_model(language_code="en", device=device)
+    result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
+    
+    lines = []
+    segments_data = []
+    
+    for seg in result["segments"]:
+        start = seg["start"]
+        end = seg["end"]
+        text = seg["text"].strip()
+        
+        # Format timestamp
+        start_fmt = f"{int(start//60):02d}:{start%60:05.2f}"
+        end_fmt = f"{int(end//60):02d}:{end%60:05.2f}"
+        
+        lines.append(f"[{start_fmt} --> {end_fmt}] {text}")
+        
+        # Include word-level timestamps if available
+        words_data = []
+        if "words" in seg:
+            for w in seg["words"]:
+                words_data.append({
+                    "word": w.get("word", ""),
+                    "start_ms": int(w.get("start", 0) * 1000),
+                    "end_ms": int(w.get("end", 0) * 1000),
+                })
+        
+        segments_data.append({
+            "start_ms": int(start * 1000),
+            "end_ms": int(end * 1000),
+            "text": text,
+            "words": words_data
+        })
+    
+    return "\n".join(lines), segments_data
+
+
 def worker():
     """Background worker that processes the job queue."""
     global model
@@ -159,6 +240,8 @@ def worker():
                 if job.get("mode") == "api":
                     text = transcribe_file_api(filepath, job["api_key"])
                     segments_data = []  # API mode doesn't return segments
+                elif state["engine"] == "whisperx":
+                    text, segments_data = transcribe_file_whisperx(filepath)
                 else:
                     text, segments_data = transcribe_file(filepath)
                 elapsed = time.time() - start
@@ -203,6 +286,8 @@ def api_status():
         "model_loaded": state["model_loaded"],
         "model_name": state["model_name"],
         "device": state["device"],
+        "engine": state["engine"],
+        "whisperx_available": state["whisperx_available"],
         "is_running": state["is_running"],
         "worker_status": state.get("worker_status", ""),
         "jobs": state["jobs"],
@@ -388,18 +473,27 @@ def transcribe_file_api(filepath, api_key):
 @app.route("/api/settings", methods=["POST"])
 def api_settings():
     """Update model settings (only when not running)."""
+    global whisperx_model
     if state["is_running"]:
         return jsonify({"error": "Cannot change settings while running"}), 400
     
     data = request.json
+    if "engine" in data:
+        if data["engine"] == "whisperx" and not HAS_WHISPERX:
+            return jsonify({"error": "WhisperX not installed. Run: pip install whisperx"}), 400
+        state["engine"] = data["engine"]
+        state["model_loaded"] = False
+        whisperx_model = None
     if "model_name" in data:
         state["model_name"] = data["model_name"]
         state["model_loaded"] = False
+        whisperx_model = None
     if "device" in data:
         state["device"] = data["device"]
         state["model_loaded"] = False
+        whisperx_model = None
     
-    return jsonify({"ok": True, "model_name": state["model_name"], "device": state["device"]})
+    return jsonify({"ok": True, "engine": state["engine"], "model_name": state["model_name"], "device": state["device"]})
 
 
 if __name__ == "__main__":
