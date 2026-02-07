@@ -112,17 +112,25 @@ def transcribe_file(filepath):
 
 
 def transcribe_file_stable_ts(filepath):
-    """Transcribe using stable-ts for accurate word-level timestamps."""
+    """
+    Hybrid approach: faster-whisper for speed + stable-ts for accurate alignment.
+    Best of both worlds.
+    """
     if not HAS_STABLE_TS:
         raise RuntimeError("stable-ts not installed. Run: pip install stable-ts")
     
-    # stable-ts uses its own model loading - transcribe directly
-    model_name = state["model_name"]
-    device = state["device"]
+    # Step 1: Fast transcription with faster-whisper
+    segments_fw, info = model.transcribe(filepath, language="en", beam_size=5, vad_filter=True)
     
-    # Load model and transcribe with word timestamps
-    model_st = stable_whisper.load_model(model_name, device=device)
-    result = model_st.transcribe(filepath, language="en", word_timestamps=True)
+    # Collect full transcript text
+    full_text = ""
+    for seg in segments_fw:
+        full_text += seg.text
+    
+    # Step 2: Load a stable-ts model and align the text with audio
+    # This gives us accurate word-level timestamps
+    model_st = stable_whisper.load_model(state["model_name"], device=state["device"])
+    result = model_st.align(filepath, full_text, language="en")
     
     lines = []
     segments_data = []

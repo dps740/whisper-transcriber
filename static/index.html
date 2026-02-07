@@ -105,7 +105,7 @@
                 <label>Engine:</label>
                 <select id="engineSelect" onchange="updateSettings()">
                     <option value="faster-whisper">faster-whisper (default)</option>
-                    <option value="stable-ts">stable-ts (accurate timestamps ✓)</option>
+                    <option value="stable-ts">faster-whisper + stable-ts alignment (accurate ✓)</option>
                 </select>
                 <label>Model:</label>
                 <select id="modelSelect" onchange="updateSettings()">
@@ -344,7 +344,7 @@ async function pollStatus() {
     // Update header status
     const dot = document.getElementById('statusDot');
     const text = document.getElementById('statusText');
-    const engineLabel = data.engine === 'stable-ts' ? 'stable-ts' : 'faster-whisper';
+    const engineLabel = data.engine === 'stable-ts' ? 'faster-whisper+align' : 'faster-whisper';
     if (data.is_running && !data.model_loaded) {
         dot.className = 'dot yellow';
         text.textContent = data.worker_status || `Loading ${data.model_name}...`;
