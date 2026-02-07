@@ -79,12 +79,26 @@ def load_model():
 
 
 def transcribe_file(filepath):
-    """Transcribe a single file, return text."""
-    segments, info = model.transcribe(filepath, language="en", beam_size=5)
+    """Transcribe a single file, return (text_with_timestamps, segments_list)."""
+    segments, info = model.transcribe(filepath, language="en", beam_size=5, vad_filter=True)
+    
     lines = []
+    segments_data = []
+    
     for seg in segments:
-        lines.append(seg.text.strip())
-    return "\n".join(lines)
+        # Format timestamp as MM:SS.ss
+        start_fmt = f"{int(seg.start//60):02d}:{seg.start%60:05.2f}"
+        end_fmt = f"{int(seg.end//60):02d}:{seg.end%60:05.2f}"
+        text = seg.text.strip()
+        
+        lines.append(f"[{start_fmt} --> {end_fmt}] {text}")
+        segments_data.append({
+            "start_ms": int(seg.start * 1000),
+            "end_ms": int(seg.end * 1000),
+            "text": text
+        })
+    
+    return "\n".join(lines), segments_data
 
 
 def worker():
@@ -144,15 +158,26 @@ def worker():
                 start = time.time()
                 if job.get("mode") == "api":
                     text = transcribe_file_api(filepath, job["api_key"])
+                    segments_data = []  # API mode doesn't return segments
                 else:
-                    text = transcribe_file(filepath)
+                    text, segments_data = transcribe_file(filepath)
                 elapsed = time.time() - start
                 
+                # Save text with timestamps
                 with open(out_path, "w", encoding="utf-8") as f:
                     f.write(text)
                 
+                # Save JSON with segment data (for Echo ingestion)
+                if segments_data:
+                    json_path = os.path.join(output_folder, f"{basename}.json")
+                    with open(json_path, "w", encoding="utf-8") as f:
+                        json.dump({
+                            "file": os.path.basename(filepath),
+                            "segments": segments_data
+                        }, f, indent=2)
+                
                 job["completed"] = i + 1
-                job["current_file"] = f"Done: {basename} ({elapsed:.1f}s)"
+                job["current_file"] = f"Done: {basename} ({elapsed:.1f}s, {len(segments_data)} segments)"
             except Exception as e:
                 job["errors"].append(f"{basename}: {str(e)}")
                 job["completed"] = i + 1
