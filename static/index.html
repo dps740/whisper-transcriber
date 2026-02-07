@@ -105,7 +105,7 @@
                 <label>Engine:</label>
                 <select id="engineSelect" onchange="updateSettings()">
                     <option value="faster-whisper">faster-whisper (default)</option>
-                    <option value="whisperx">whisperX (accurate timestamps ✓)</option>
+                    <option value="stable-ts">stable-ts (accurate timestamps ✓)</option>
                 </select>
                 <label>Model:</label>
                 <select id="modelSelect" onchange="updateSettings()">
@@ -331,20 +331,20 @@ function renderQueue() {
 async function pollStatus() {
     const data = await api('status');
     
-    // Update engine select if whisperX not available
+    // Update engine select if stable-ts not available
     const engineSelect = document.getElementById('engineSelect');
-    if (engineSelect && !data.whisperx_available) {
-        const whisperxOption = engineSelect.querySelector('option[value="whisperx"]');
-        if (whisperxOption) {
-            whisperxOption.textContent = 'whisperX (not installed)';
-            whisperxOption.disabled = true;
+    if (engineSelect && !data.stable_ts_available) {
+        const stableTsOption = engineSelect.querySelector('option[value="stable-ts"]');
+        if (stableTsOption) {
+            stableTsOption.textContent = 'stable-ts (not installed)';
+            stableTsOption.disabled = true;
         }
     }
     
     // Update header status
     const dot = document.getElementById('statusDot');
     const text = document.getElementById('statusText');
-    const engineLabel = data.engine === 'whisperx' ? 'WhisperX' : 'faster-whisper';
+    const engineLabel = data.engine === 'stable-ts' ? 'stable-ts' : 'faster-whisper';
     if (data.is_running && !data.model_loaded) {
         dot.className = 'dot yellow';
         text.textContent = data.worker_status || `Loading ${data.model_name}...`;

@@ -22,28 +22,28 @@ except ImportError:
 
 app = Flask(__name__, static_folder="static")
 
-# Optional: WhisperX for accurate timestamps
+# Optional: stable-ts for accurate timestamps (simpler than stable-ts)
 try:
-    import whisperx
-    HAS_WHISPERX = True
+    import stable_whisper
+    HAS_STABLE_TS = True
 except ImportError:
-    HAS_WHISPERX = False
+    HAS_STABLE_TS = False
 
 # --- State ---
 state = {
     "model_loaded": False,
     "model_name": "tiny",
     "device": "cuda",
-    "engine": "faster-whisper",  # "faster-whisper" or "whisperx"
+    "engine": "faster-whisper",  # "faster-whisper" or "stable-ts"
     "jobs": [],  # List of {id, input_folder, output_folder, status, files, current_file, progress, errors}
     "is_running": False,
     "worker_status": "",
     "openai_available": HAS_OPENAI,
     "openai_key": os.environ.get("OPENAI_API_KEY", ""),
-    "whisperx_available": HAS_WHISPERX,
+    "stable_ts_available": HAS_STABLE_TS,
 }
 model = None
-whisperx_model = None
+stable_ts_model = None
 worker_thread = None
 
 
@@ -111,50 +111,26 @@ def transcribe_file(filepath):
     return "\n".join(lines), segments_data
 
 
-def load_whisperx_model():
-    """Load the WhisperX model for accurate timestamps."""
-    global whisperx_model
-    if not HAS_WHISPERX:
-        raise RuntimeError("WhisperX not installed. Run: pip install whisperx")
+def transcribe_file_stable_ts(filepath):
+    """Transcribe using stable-ts for accurate word-level timestamps."""
+    if not HAS_STABLE_TS:
+        raise RuntimeError("stable-ts not installed. Run: pip install stable-ts")
     
-    device = state["device"]
-    compute_type = "float16" if device == "cuda" else "int8"
-    
-    whisperx_model = whisperx.load_model(
-        state["model_name"], 
-        device=device, 
-        compute_type=compute_type,
-        language="en"
-    )
-    print(f"WhisperX model '{state['model_name']}' loaded on {device}")
-
-
-def transcribe_file_whisperx(filepath):
-    """Transcribe using WhisperX for accurate word-level timestamps."""
-    global whisperx_model
-    
-    if whisperx_model is None:
-        load_whisperx_model()
-    
+    # stable-ts uses its own model loading - transcribe directly
+    model_name = state["model_name"]
     device = state["device"]
     
-    # Load audio
-    audio = whisperx.load_audio(filepath)
-    
-    # Transcribe
-    result = whisperx_model.transcribe(audio, batch_size=16)
-    
-    # Align for accurate timestamps
-    model_a, metadata = whisperx.load_align_model(language_code="en", device=device)
-    result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
+    # Load model and transcribe with word timestamps
+    model_st = stable_whisper.load_model(model_name, device=device)
+    result = model_st.transcribe(filepath, language="en", word_timestamps=True)
     
     lines = []
     segments_data = []
     
-    for seg in result["segments"]:
-        start = seg["start"]
-        end = seg["end"]
-        text = seg["text"].strip()
+    for seg in result.segments:
+        start = seg.start
+        end = seg.end
+        text = seg.text.strip()
         
         # Format timestamp
         start_fmt = f"{int(start//60):02d}:{start%60:05.2f}"
@@ -162,14 +138,14 @@ def transcribe_file_whisperx(filepath):
         
         lines.append(f"[{start_fmt} --> {end_fmt}] {text}")
         
-        # Include word-level timestamps if available
+        # Include word-level timestamps
         words_data = []
-        if "words" in seg:
-            for w in seg["words"]:
+        if hasattr(seg, 'words') and seg.words:
+            for w in seg.words:
                 words_data.append({
-                    "word": w.get("word", ""),
-                    "start_ms": int(w.get("start", 0) * 1000),
-                    "end_ms": int(w.get("end", 0) * 1000),
+                    "word": w.word,
+                    "start_ms": int(w.start * 1000),
+                    "end_ms": int(w.end * 1000),
                 })
         
         segments_data.append({
@@ -240,8 +216,8 @@ def worker():
                 if job.get("mode") == "api":
                     text = transcribe_file_api(filepath, job["api_key"])
                     segments_data = []  # API mode doesn't return segments
-                elif state["engine"] == "whisperx":
-                    text, segments_data = transcribe_file_whisperx(filepath)
+                elif state["engine"] == "stable-ts":
+                    text, segments_data = transcribe_file_stable_ts(filepath)
                 else:
                     text, segments_data = transcribe_file(filepath)
                 elapsed = time.time() - start
@@ -287,7 +263,7 @@ def api_status():
         "model_name": state["model_name"],
         "device": state["device"],
         "engine": state["engine"],
-        "whisperx_available": state["whisperx_available"],
+        "stable-ts_available": state["stable-ts_available"],
         "is_running": state["is_running"],
         "worker_status": state.get("worker_status", ""),
         "jobs": state["jobs"],
@@ -473,25 +449,25 @@ def transcribe_file_api(filepath, api_key):
 @app.route("/api/settings", methods=["POST"])
 def api_settings():
     """Update model settings (only when not running)."""
-    global whisperx_model
+    global stable_ts_model
     if state["is_running"]:
         return jsonify({"error": "Cannot change settings while running"}), 400
     
     data = request.json
     if "engine" in data:
-        if data["engine"] == "whisperx" and not HAS_WHISPERX:
-            return jsonify({"error": "WhisperX not installed. Run: pip install whisperx"}), 400
+        if data["engine"] == "stable-ts" and not HAS_STABLE_TS:
+            return jsonify({"error": "stable-ts not installed. Run: pip install stable-ts"}), 400
         state["engine"] = data["engine"]
         state["model_loaded"] = False
-        whisperx_model = None
+        stable_ts_model = None
     if "model_name" in data:
         state["model_name"] = data["model_name"]
         state["model_loaded"] = False
-        whisperx_model = None
+        stable_ts_model = None
     if "device" in data:
         state["device"] = data["device"]
         state["model_loaded"] = False
-        whisperx_model = None
+        stable_ts_model = None
     
     return jsonify({"ok": True, "engine": state["engine"], "model_name": state["model_name"], "device": state["device"]})
 

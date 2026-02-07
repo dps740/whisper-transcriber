@@ -1,4 +1,4 @@
 faster-whisper>=1.0.0
 flask>=3.0.0
 openai>=1.0.0  # Optional: only needed for Emergency API mode
-whisperx>=3.1.0  # Optional: for accurate word-level timestamps
+stable-ts>=2.0.0  # Optional: for accurate word-level timestamps
