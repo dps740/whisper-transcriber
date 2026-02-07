@@ -32,7 +32,7 @@ except ImportError:
 # --- State ---
 state = {
     "model_loaded": False,
-    "model_name": "small",
+    "model_name": "tiny",
     "device": "cuda",
     "engine": "faster-whisper",  # "faster-whisper" or "whisperx"
     "jobs": [],  # List of {id, input_folder, output_folder, status, files, current_file, progress, errors}
