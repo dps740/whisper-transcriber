@@ -271,7 +271,7 @@ def api_status():
         "model_name": state["model_name"],
         "device": state["device"],
         "engine": state["engine"],
-        "stable-ts_available": state["stable-ts_available"],
+        "stable_ts_available": state["stable_ts_available"],
         "is_running": state["is_running"],
         "worker_status": state.get("worker_status", ""),
         "jobs": state["jobs"],
