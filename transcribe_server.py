@@ -48,13 +48,19 @@ worker_thread = None
 
 
 def get_audio_files(folder):
-    """Find all audio/video files in a folder."""
-    extensions = ["*.mp3", "*.mp4", "*.m4a", "*.webm", "*.wav", "*.ogg", "*.flac", "*.aac", "*.wma"]
+    """Find all audio/video files in a folder. faster-whisper handles video natively via FFmpeg."""
+    extensions = [
+        # Audio
+        "*.mp3", "*.m4a", "*.wav", "*.ogg", "*.flac", "*.aac", "*.wma", "*.opus",
+        # Video (faster-whisper extracts audio automatically via FFmpeg)
+        "*.mp4", "*.mkv", "*.avi", "*.mov", "*.wmv", "*.m4v", "*.webm",
+        "*.ts", "*.mpg", "*.mpeg", "*.vob", "*.3gp", "*.mts", "*.m2ts",
+    ]
     files = []
     for ext in extensions:
         files.extend(glob.glob(os.path.join(folder, ext)))
         files.extend(glob.glob(os.path.join(folder, ext.upper())))
-    return sorted(files)
+    return sorted(set(files))  # dedupe in case of case collision
 
 
 def load_model():

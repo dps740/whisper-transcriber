@@ -209,7 +209,7 @@ async function browseTo(path) {
     
     const audioCount = data.audio_count || 0;
     document.getElementById('audioCount').innerHTML = audioCount > 0 
-        ? `<span class="audio-badge">${audioCount} audio files</span>` 
+        ? `<span class="audio-badge">${audioCount} audio/video files</span>` 
         : '';
     document.getElementById('addFolderBtn').disabled = audioCount === 0;
     document.getElementById('addFolderBtn').textContent = '➕ Add This Folder';
@@ -260,7 +260,7 @@ async function addAllSubfolders() {
             }
         }
     }
-    if (added === 0) alert('No subfolders with audio files found.');
+    if (added === 0) alert('No subfolders with audio or video files found.');
 }
 
 async function addCurrentFolderAPI() {
